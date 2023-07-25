@@ -40,7 +40,6 @@ module modified_led #
 endmodule
 """
 
-
 def test():
     veriloggen.reset()
     test_module = read_verilog_code.mkLed()

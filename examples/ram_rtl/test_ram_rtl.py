@@ -18,7 +18,7 @@ module test;
 
 
   initial begin
-    $dumpfile("ram_rtl.vcd");
+    $dumpfile("uut.vcd");
     $dumpvars(0, uut, CLK, RST);
   end
 

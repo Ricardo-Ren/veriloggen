@@ -119,7 +119,7 @@ module test #
 
 
   initial begin
-    $dumpfile("chatter_clear.vcd");
+    $dumpfile("uut.vcd");
     $dumpvars(0, uut, CLK, RST, din, dout, fsm, _tmp_0);
   end
 
@@ -184,7 +184,6 @@ module chatter_clear #
 
 endmodule
 """
-
 
 def test():
     veriloggen.reset()

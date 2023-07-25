@@ -41,7 +41,7 @@ module test
   reg reset_done;
 
   initial begin
-    $dumpfile("dataflow_reduceadd_valid.vcd");
+    $dumpfile("uut.vcd");
     $dumpvars(0, uut);
   end
 
@@ -555,7 +555,6 @@ module multiplier_core_0
 endmodule
 
 """
-
 
 def test():
     veriloggen.reset()

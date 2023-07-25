@@ -5,7 +5,7 @@ import initial
 
 expected_verilog = """
 module test #
-  (
+  ( 
    parameter WIDTH = 8
   )
   (
@@ -27,7 +27,7 @@ module test #
    );
 
   initial begin
-    $dumpfile("initial.vcd");
+    $dumpfile("uut.vcd");
     $dumpvars(0, uut);
   end
 
@@ -82,7 +82,6 @@ module blinkled #
   end
 endmodule
 """
-
 
 def test():
     veriloggen.reset()

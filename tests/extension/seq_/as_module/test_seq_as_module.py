@@ -129,7 +129,6 @@ module seq #
 endmodule
 """
 
-
 def test():
     veriloggen.reset()
     test_module = seq_as_module.mkTest()

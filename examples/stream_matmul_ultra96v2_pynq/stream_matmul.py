@@ -25,9 +25,8 @@ def mkLed():
     m = Module('blinkled')
     clk = m.Input('CLK')
     rst = m.Input('RST')
-
-    addrwidth = 10
-    ram_a = vthread.RAM(m, 'ram_a', clk, rst, datawidth, addrwidth)
+    addrwidth = 20
+    ram_a = vthread.RAM(m, 'ram_a', clk, rst, datawidth, addrwidth)# 2^addrwidth * datawidth
     ram_b = vthread.RAM(m, 'ram_b', clk, rst, datawidth, addrwidth)
     ram_c = vthread.RAM(m, 'ram_c', clk, rst, datawidth, addrwidth)
 
@@ -43,11 +42,11 @@ def mkLed():
     strm.sink(sum, 'sum', when=sum_valid, when_name='sum_valid')
 
     def strm_madd(size, waddr):
-        strm.set_source('a', ram_a, 0, size)
-        strm.set_source('b', ram_b, 0, size)
-        strm.set_parameter('size', size)
-        strm.set_sink('sum', ram_c, waddr, 1)
-        strm.run()
+        strm.set_source('a', ram_a, 0, size) #1
+        strm.set_source('b', ram_b, 0, size)#1
+        strm.set_parameter('size', size)#1
+        strm.set_sink('sum', ram_c, waddr, 1)#1
+        strm.run() #(pipline_depth+1+4) ?? there is error about time calculation
         strm.join()
 
     def matmul():
@@ -63,21 +62,27 @@ def mkLed():
 
             saxi.write(1, 0)  # unset busy
 
+# matrix_size*(matrix_size*datawidth/axi_datawidth + matrix_size*(matrix_size*datawidth/axi_datawidth+4) 
+# + matrix_size*datawidth/axi_datawidth) 
+
+
+# 16*(16+16*(16+pipline_depth+5+16)+16) =  11008
+# actually: 16556 cycle
     def comp(matrix_size, a_offset, b_offset, c_offset):
         a_addr, c_addr = a_offset, c_offset
-
         for i in range(matrix_size):
-            maxi.dma_read(ram_a, 0, a_addr, matrix_size)
+            maxi.dma_read(ram_a, 0, a_addr, matrix_size) # matrix_size*datawidth/axi_datawidth
 
             b_addr = b_offset
-            for j in range(matrix_size):
-                maxi.dma_read(ram_b, 0, b_addr, matrix_size)
-
-                strm_madd(matrix_size, j)
+            for j in range(matrix_size): # matrix_size*(matrix_size+one_operaton_cycle)
+                
+                maxi.dma_read(ram_b, 0, b_addr, matrix_size) #matrix_size*datawidth/axi_datawidth
+   
+                strm_madd(matrix_size, j) # one_operaton_cycle = (pipline_depth + matrix_size +matrix_size+5)
 
                 b_addr += matrix_size * (datawidth // 8)
 
-            maxi.dma_write(ram_c, 0, c_addr, matrix_size)
+            maxi.dma_write(ram_c, 0, c_addr, matrix_size) #matrix_size*datawidth/axi_datawidth
             a_addr += matrix_size * (datawidth // 8)
             c_addr += matrix_size * (datawidth // 8)
 
@@ -137,7 +142,7 @@ def mkTest(memimg_name=None):
 
     memory = axi.AxiMemoryModel(m, 'memory', clk, rst,
                                 mem_datawidth=axi_datawidth,
-                                memimg=mem, memimg_name=memimg_name)
+                                memimg=mem, memimg_name=memimg_name, write_delay=0, read_delay=0, sleep_interval=0, keep_sleep=0)
 
     memory.connect(ports, 'maxi')
 
@@ -214,8 +219,7 @@ def mkTest(memimg_name=None):
                      params=m.connect_params(led),
                      ports=m.connect_ports(led))
 
-    vcd_name = os.path.splitext(os.path.basename(__file__))[0] + '.vcd'
-    simulation.setup_waveform(m, uut, dumpfile=vcd_name)
+    simulation.setup_waveform(m, uut)
     simulation.setup_clock(m, clk, hperiod=5)
     init = simulation.setup_reset(m, rst, m.make_reset(), period=100)
 
@@ -241,10 +245,17 @@ def run(filename='tmp.v', simtype='iverilog', outputfile=None):
 
     sim = simulation.Simulator(test, sim=simtype)
     rslt = sim.run(outputfile=outputfile)
-
+    lines = rslt.splitlines()
+    if simtype == 'verilator' and lines[-1].startswith('-'):
+        rslt = '\n'.join(lines[:-1])
     return rslt
 
 
 if __name__ == '__main__':
-    rslt = run(filename='tmp.v')
+    rslt = run(filename='tmpGEMM.v')
     print(rslt)
+    # memimg_name = 'memimg_' + 'tmp.v'
+    # test = mkTest(memimg_name=memimg_name)
+    # sim = simulation.Simulator(test, sim='verilator')
+    # rslt = sim.run(outputfile='verilator.out')
+    # print(rslt)

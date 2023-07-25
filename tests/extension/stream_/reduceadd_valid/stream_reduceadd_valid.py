@@ -18,7 +18,7 @@ def mkMain():
 
     # stream definition
     z = x + y
-    z, v = stream.ReduceAddValid(z, 8)
+    z, v = stream.ReduceAddValid(z, 16)
 
     # set output attribute
     z.output('zdata')
@@ -62,8 +62,7 @@ def mkTest(numports=8):
     reset_stmt.append(ydata(0))
     reset_stmt.append(ivalid(0))
 
-    # vcd_name = os.path.splitext(os.path.basename(__file__))[0] + '.vcd'
-    # simulation.setup_waveform(m, uut, dumpfile=vcd_name)
+    # simulation.setup_waveform(m, uut)
     simulation.setup_clock(m, clk, hperiod=5)
     init = simulation.setup_reset(m, rst, reset_stmt, period=100)
 
@@ -133,12 +132,12 @@ def mkTest(numports=8):
 if __name__ == '__main__':
     test = mkTest()
     verilog = test.to_verilog('tmp.v')
-    print(verilog)
+    # print(verilog)
 
     # run simulator (Icarus Verilog)
     sim = simulation.Simulator(test)
     rslt = sim.run()  # display=False
-    #rslt = sim.run(display=True)
+    rslt = sim.run(display=True)
     print(rslt)
 
     # launch waveform viewer (GTKwave)

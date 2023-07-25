@@ -54,7 +54,6 @@ module blinkled
 endmodule
 """
 
-
 def test():
     veriloggen.reset()
     test_module = from_verilog_module_oldstylecode.mkTop()

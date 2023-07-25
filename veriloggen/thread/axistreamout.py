@@ -58,7 +58,7 @@ class AXIStreamOut(axi.AxiStreamOut, _MutexFunction):
                                                              'write_local_stride_fifo']),
                                                    self.addrwidth)
         self.write_size_fifo = self.m.Wire('_'.join(['', self.name,
-                                                     'write_size_fifo']),
+                                                           'write_size_fifo']),
                                            self.addrwidth + 1)
 
         write_unpack_values = self.unpack_write_req(self.write_req_fifo.rdata)
@@ -80,14 +80,11 @@ class AXIStreamOut(axi.AxiStreamOut, _MutexFunction):
                                                    'write_size_buf']),
                                          self.addrwidth + 1, initval=0)
 
-        self.write_data_busy = self.m.Reg(
-            '_'.join(['', self.name, 'write_data_busy']), initval=0)
-        self.write_data_idle = self.m.Wire('_'.join(['', self.name, 'write_data_idle']))
-        self.write_idle = self.m.Wire('_'.join(['', self.name, 'write_idle']))
+        self.write_data_idle = self.m.Reg(
+            '_'.join(['', self.name, 'write_data_idle']), initval=1)
 
-        self.write_data_idle.assign(vtypes.Ands(self.write_req_fifo.empty,
-                                                vtypes.Not(self.write_data_busy)))
-        self.write_idle.assign(self.write_data_idle)
+        self.write_idle = self.m.Wire('_'.join(['', self.name, 'write_idle']))
+        self.write_idle.assign(vtypes.Ands(self.write_req_fifo.empty, self.write_data_idle))
 
         self.write_op_id_map = OrderedDict()
         self.write_op_id_count = 1
@@ -99,10 +96,10 @@ class AXIStreamOut(axi.AxiStreamOut, _MutexFunction):
 
     def write(self, fsm, value, last=False):
         # state 0
-        self.seq.If(fsm.here, self.write_idle)(
-            self.write_data_busy(1)
+        self.seq.If(fsm.here, self.write_data_idle)(
+            self.write_data_idle(0)
         )
-        fsm.If(self.write_idle).goto_next()
+        fsm.If(self.write_data_idle).goto_next()
 
         # state 1
         wcond = fsm.here
@@ -111,7 +108,7 @@ class AXIStreamOut(axi.AxiStreamOut, _MutexFunction):
         _ = self.write_data(wdata, wlast, cond=wcond)
         ack = vtypes.Ors(self.tdata.tready, vtypes.Not(self.tdata.tvalid))
         self.seq.If(fsm.here, ack)(
-            self.write_data_busy(0)
+            self.write_data_idle(1)
         )
         fsm.If(ack).goto_next()
 
@@ -225,11 +222,11 @@ class AXIStreamOut(axi.AxiStreamOut, _MutexFunction):
             self.write_data_fsm = data_fsm
 
         # Data state 0
-        cond = vtypes.Ands(vtypes.Not(self.write_data_busy),
+        cond = vtypes.Ands(self.write_data_idle,
                            vtypes.Not(self.write_req_fifo.empty),
                            self.write_op_sel_fifo == op_id)
         self.seq.If(data_fsm.here, cond)(
-            self.write_data_busy(1),
+            self.write_data_idle(0),
             self.write_op_sel_buf(self.write_op_sel_fifo),
             self.write_local_addr_buf(self.write_local_addr_fifo),
             self.write_local_stride_buf(self.write_local_stride_fifo),
@@ -257,7 +254,7 @@ class AXIStreamOut(axi.AxiStreamOut, _MutexFunction):
 
         data_fsm.If(wcond, rlast).goto_init()
         self.seq.If(data_fsm.here, wcond, rlast)(
-            self.write_data_busy(0)
+            self.write_data_idle(1)
         )
 
     def _synthesize_write_data_fsm_narrow(self, ram, port, ram_method, ram_datawidth):
@@ -288,11 +285,11 @@ class AXIStreamOut(axi.AxiStreamOut, _MutexFunction):
             self.write_data_narrow_fsm = data_fsm
 
         # Data state 0
-        cond = vtypes.Ands(vtypes.Not(self.write_data_busy),
+        cond = vtypes.Ands(self.write_data_idle,
                            vtypes.Not(self.write_req_fifo.empty),
                            self.write_op_sel_fifo == op_id)
         self.seq.If(data_fsm.here, cond)(
-            self.write_data_busy(1),
+            self.write_data_idle(0),
             self.write_op_sel_buf(self.write_op_sel_fifo),
             self.write_local_addr_buf(self.write_local_addr_fifo),
             self.write_local_stride_buf(self.write_local_stride_fifo),
@@ -357,7 +354,7 @@ class AXIStreamOut(axi.AxiStreamOut, _MutexFunction):
         data_fsm.If(wcond, count == pack_size - 1, wlast).goto_init()
 
         self.seq.If(data_fsm.here, wcond, count == pack_size - 1, wlast)(
-            self.write_data_busy(0)
+            self.write_data_idle(1)
         )
 
     def _synthesize_write_data_fsm_wide(self, ram, port, ram_method, ram_datawidth):
@@ -390,7 +387,7 @@ class AXIStreamOut(axi.AxiStreamOut, _MutexFunction):
             self.write_data_wide_fsm = data_fsm
 
         # Data state 0
-        cond = vtypes.Ands(vtypes.Not(self.write_data_busy),
+        cond = vtypes.Ands(self.write_data_idle,
                            vtypes.Not(self.write_req_fifo.empty),
                            self.write_op_sel_fifo == op_id)
         res = vtypes.Mux(
@@ -399,7 +396,7 @@ class AXIStreamOut(axi.AxiStreamOut, _MutexFunction):
         local_size = global_size << log_pack_size
 
         self.seq.If(data_fsm.here, cond)(
-            self.write_data_busy(1),
+            self.write_data_idle(0),
             self.write_op_sel_buf(self.write_op_sel_fifo),
             self.write_local_addr_buf(self.write_local_addr_fifo),
             self.write_local_stride_buf(self.write_local_stride_fifo),
@@ -446,7 +443,7 @@ class AXIStreamOut(axi.AxiStreamOut, _MutexFunction):
         data_fsm.If(count == pack_size - 1, rvalid, rready, rlast).goto_init()
 
         self.seq.If(data_fsm.here, count == pack_size - 1, rvalid, rready, rlast)(
-            self.write_data_busy(0)
+            self.write_data_idle(1)
         )
 
     def _set_flag(self, fsm, prefix='axistreamout_flag'):
@@ -539,7 +536,7 @@ class AXIStreamOutFifo(AXIStreamOut):
                                                        'write_op_sel_fifo']),
                                              self.op_sel_width)
         self.write_size_fifo = self.m.Wire('_'.join(['', self.name,
-                                                     'write_size_fifo']),
+                                                           'write_size_fifo']),
                                            self.addrwidth + 1)
 
         write_unpack_values = self.unpack_write_req(self.write_req_fifo.rdata)
@@ -553,14 +550,11 @@ class AXIStreamOutFifo(AXIStreamOut):
                                                    'write_size_buf']),
                                          self.addrwidth + 1, initval=0)
 
-        self.write_data_busy = self.m.Reg(
-            '_'.join(['', self.name, 'write_data_busy']), initval=0)
-        self.write_data_idle = self.m.Wire('_'.join(['', self.name, 'write_data_idle']))
-        self.write_idle = self.m.Wire('_'.join(['', self.name, 'write_idle']))
+        self.write_data_idle = self.m.Reg(
+            '_'.join(['', self.name, 'write_data_idle']), initval=1)
 
-        self.write_data_idle.assign(vtypes.Ands(self.write_req_fifo.empty,
-                                                vtypes.Not(self.write_data_busy)))
-        self.write_idle.assign(self.write_data_idle)
+        self.write_idle = self.m.Wire('_'.join(['', self.name, 'write_idle']))
+        self.write_idle.assign(vtypes.Ands(self.write_req_fifo.empty, self.write_data_idle))
 
         self.write_op_id_map = OrderedDict()
         self.write_op_id_count = 1
@@ -615,7 +609,7 @@ class AXIStreamOutFifo(AXIStreamOut):
                                vtypes.Not(self.write_req_fifo.almost_full))
 
         _ = self.write_req_fifo.enq_rtl(self.pack_write_req(op_id,
-                                                            local_size),
+                                                          local_size),
                                         cond=enq_cond)
 
     def _synthesize_write_data_fsm(self, fifo, fifo_datawidth):
@@ -650,11 +644,11 @@ class AXIStreamOutFifo(AXIStreamOut):
             self.write_data_fsm = data_fsm
 
         # Data state 0
-        cond = vtypes.Ands(vtypes.Not(self.write_data_busy),
+        cond = vtypes.Ands(self.write_data_idle,
                            vtypes.Not(self.write_req_fifo.empty),
                            self.write_op_sel_fifo == op_id)
         self.seq.If(data_fsm.here, cond)(
-            self.write_data_busy(1),
+            self.write_data_idle(0),
             self.write_op_sel_buf(self.write_op_sel_fifo),
             self.write_size_buf(self.write_size_fifo),
         )
@@ -669,7 +663,7 @@ class AXIStreamOutFifo(AXIStreamOut):
 
         # Data state 1
         cur_rvalid = self.m.TmpWire(prefix='cur_rvalid')
-        # rready = vtypes.Ands(vtypes.Ors(self.tdata.tready, vtypes.Not(self.tdata.tvalid)),
+        #rready = vtypes.Ands(vtypes.Ors(self.tdata.tready, vtypes.Not(self.tdata.tvalid)),
         #                     self.write_size_buf > 0)
         rready = vtypes.Ors(self.tdata.tready, vtypes.Not(self.tdata.tvalid))
         deq_cond = vtypes.Ands(data_fsm.here, vtypes.Not(fifo.empty),
@@ -698,7 +692,7 @@ class AXIStreamOutFifo(AXIStreamOut):
 
         data_fsm.If(wcond, rlast).goto_init()
         self.seq.If(data_fsm.here, wcond, rlast)(
-            self.write_data_busy(0)
+            self.write_data_idle(1)
         )
 
     def _synthesize_write_data_fsm_narrow(self, fifo, fifo_datawidth):
@@ -728,11 +722,11 @@ class AXIStreamOutFifo(AXIStreamOut):
             self.write_data_narrow_fsm = data_fsm
 
         # Data state 0
-        cond = vtypes.Ands(vtypes.Not(self.write_data_busy),
+        cond = vtypes.Ands(self.write_data_idle,
                            vtypes.Not(self.write_req_fifo.empty),
                            self.write_op_sel_fifo == op_id)
         self.seq.If(data_fsm.here, cond)(
-            self.write_data_busy(1),
+            self.write_data_idle(0),
             self.write_op_sel_buf(self.write_op_sel_fifo),
             # self.write_size_fifo: local_size
             self.write_size_buf(self.write_size_fifo),
@@ -751,7 +745,7 @@ class AXIStreamOutFifo(AXIStreamOut):
 
         # Data state 1
         cur_rvalid = self.m.TmpWire(prefix='cur_rvalid')
-        # rready = vtypes.Ands(vtypes.Ors(self.tdata.tready, vtypes.Not(self.tdata.tvalid)),
+        #rready = vtypes.Ands(vtypes.Ors(self.tdata.tready, vtypes.Not(self.tdata.tvalid)),
         #                     self.write_size_buf > 0)
         rready = vtypes.Ors(self.tdata.tready, vtypes.Not(self.tdata.tvalid))
         deq_cond = vtypes.Ands(data_fsm.here, vtypes.Not(fifo.empty),
@@ -803,7 +797,7 @@ class AXIStreamOutFifo(AXIStreamOut):
         data_fsm.If(wcond, count == pack_size - 1, wlast).goto_init()
 
         self.seq.If(data_fsm.here, wcond, count == pack_size - 1, wlast)(
-            self.write_data_busy(0)
+            self.write_data_idle(1)
         )
 
     def _synthesize_write_data_fsm_wide(self, fifo, fifo_datawidth):
@@ -835,7 +829,7 @@ class AXIStreamOutFifo(AXIStreamOut):
             self.write_data_wide_fsm = data_fsm
 
         # Data state 0
-        cond = vtypes.Ands(vtypes.Not(self.write_data_busy),
+        cond = vtypes.Ands(self.write_data_idle,
                            vtypes.Not(self.write_req_fifo.empty),
                            self.write_op_sel_fifo == op_id)
         res = vtypes.Mux(
@@ -844,7 +838,7 @@ class AXIStreamOutFifo(AXIStreamOut):
         local_size = global_size << log_pack_size
 
         self.seq.If(data_fsm.here, cond)(
-            self.write_data_busy(1),
+            self.write_data_idle(0),
             self.write_op_sel_buf(self.write_op_sel_fifo),
             self.write_size_buf(local_size),
         )
@@ -904,7 +898,7 @@ class AXIStreamOutFifo(AXIStreamOut):
         data_fsm.If(count == pack_size - 1, cur_rvalid, rready, rlast).goto_init()
 
         self.seq.If(data_fsm.here, count == pack_size - 1, cur_rvalid, rready, rlast)(
-            self.write_data_busy(0)
+            self.write_data_idle(1)
         )
 
     def _get_write_op_id(self, fifo):

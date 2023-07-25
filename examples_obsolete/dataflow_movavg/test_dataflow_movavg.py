@@ -35,7 +35,7 @@ module test
   reg reset_done;
 
   initial begin
-    $dumpfile("dataflow_movavg.vcd");
+    $dumpfile("uut.vcd");
     $dumpvars(0, uut);
   end
 
@@ -459,8 +459,6 @@ module movavg
 endmodule
 
 """
-
-
 def test():
     veriloggen.reset()
     test_module = dataflow_movavg.mkTest()

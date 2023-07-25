@@ -47,7 +47,6 @@ module submod #
 endmodule
 """
 
-
 def test():
     veriloggen.reset()
     test_module = generate_instance.mkLed()

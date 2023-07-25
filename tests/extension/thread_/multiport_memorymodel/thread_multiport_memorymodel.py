@@ -104,8 +104,8 @@ def mkLed():
     return m
 
 
-def mkTestTop(memimg_name=None):
-    m = Module('test_top')
+def mkTest(memimg_name=None):
+    m = Module('test')
 
     # target instance
     led = mkLed()
@@ -161,8 +161,7 @@ def mkTestTop(memimg_name=None):
                      params=m.connect_params(led),
                      ports=m.connect_ports(led))
 
-    # vcd_name = os.path.splitext(os.path.basename(__file__))[0] + '.vcd'
-    # simulation.setup_waveform(m, uut, dumpfile=vcd_name)
+    # simulation.setup_waveform(m, uut)
     simulation.setup_clock(m, clk, hperiod=5)
     init = simulation.setup_reset(m, rst, m.make_reset(), period=100)
 
@@ -170,23 +169,6 @@ def mkTestTop(memimg_name=None):
         Delay(1000000),
         Systask('finish'),
     )
-
-    return m
-
-
-def mkTest(memimg_name=None):
-
-    m = Module('test')
-
-    # target instance
-    test = mkTestTop(memimg_name)
-    params = m.copy_params(test)
-    ports = m.copy_sim_ports(test)
-    uut = m.Instance(test, 'uut',
-                     params=m.connect_params(test),
-                     ports=m.connect_ports(test))
-    # vcd_name = os.path.splitext(os.path.basename(__file__))[0] + '.vcd'
-    # simulation.setup_waveform(m, uut, dumpfile=vcd_name)
 
     return m
 
@@ -205,7 +187,9 @@ def run(filename='tmp.v', simtype='iverilog', outputfile=None):
 
     sim = simulation.Simulator(test, sim=simtype)
     rslt = sim.run(outputfile=outputfile)
-
+    lines = rslt.splitlines()
+    if simtype == 'verilator' and lines[-1].startswith('-'):
+        rslt = '\n'.join(lines[:-1])
     return rslt
 
 

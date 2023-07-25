@@ -114,16 +114,19 @@ def mkTest(memimg_name=None):
     )
     raddr_fsm.goto_next()
 
-    raddr_fsm(
+    ack = Ors(ports['myaxi_rready'], Not(ports['myaxi_rvalid']))
+
+    raddr_fsm.If(ack)(
         ports['myaxi_rdata'].inc(),
         ports['myaxi_rvalid'](1),
     )
-    raddr_fsm.goto_next()
-
-    raddr_fsm.If(ports['myaxi_rready'])(
-        ports['myaxi_rvalid'](0)
+    raddr_fsm.Delay(1)(
+        ports['myaxi_rvalid'](0),
     )
-    raddr_fsm.If(ports['myaxi_rready']).goto_next()
+    raddr_fsm.If(Ands(ports['myaxi_rvalid'], Not(ports['myaxi_rready'])))(
+        ports['myaxi_rvalid'](ports['myaxi_rvalid']),
+    )
+    raddr_fsm.If(Ands(ports['myaxi_rvalid'], ports['myaxi_rready'])).goto_next()
 
     raddr_fsm.goto_next()
 
@@ -135,8 +138,7 @@ def mkTest(memimg_name=None):
                      params=m.connect_params(main),
                      ports=m.connect_ports(main))
 
-    # vcd_name = os.path.splitext(os.path.basename(__file__))[0] + '.vcd'
-    # simulation.setup_waveform(m, uut, m.get_vars(), dumpfile=vcd_name)
+    # simulation.setup_waveform(m, uut, m.get_vars())
     simulation.setup_clock(m, clk, hperiod=5)
     init = simulation.setup_reset(m, rst, m.make_reset(), period=100)
 
@@ -163,7 +165,9 @@ def run(filename='tmp.v', simtype='iverilog', outputfile=None):
 
     sim = simulation.Simulator(test, sim=simtype)
     rslt = sim.run(outputfile=outputfile)
-
+    lines = rslt.splitlines()
+    if simtype == 'verilator' and lines[-1].startswith('-'):
+        rslt = '\n'.join(lines[:-1])
     return rslt
 
 

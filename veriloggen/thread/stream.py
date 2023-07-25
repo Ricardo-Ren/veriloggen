@@ -46,11 +46,59 @@ def TmpStream(m, clk, rst,
                   max_pattern_length, ram_sel_width,
                   fsm_as_module=False)
 
+class par_var:
+    def __init__(self, par=1) -> None:
+        self.par = par 
+        self.par_var_list = list()
+
+    def __add__(self, r):
+        ret = par_var(par = self.par)
+        # need to record in the veriable_map again?
+        # self.par_var_list.append(self.source(name+str(i),datawidth, point, signed, no_ctrl))
+        for i in range (self.par):
+            ret.par_var_list.append(self.par_var_list[i]+r.par_var_list[i])
+        return ret
+    
+    def __mul__ (self, r):
+        ret = par_var(par = self.par)
+        # need to record in the veriable_map again?
+        # self.par_var_list.append(self.source(name+str(i),datawidth, point, signed, no_ctrl))
+        for i in range (self.par):
+            ret.par_var_list.append(self.par_var_list[i]*r.par_var_list[i])
+        return ret
+
+    def reduce(par = 1):
+        pass
+
+class multicore_par_var:
+    def __init__(self, core_num=1, par=1) -> None:
+        self.core_num = core_num
+        self.par = par 
+        self.multicore_list = list()
+
+    def __add__(self, r):
+        ret = multicore_par_var(core_num = self.core_num, par = self.par)
+        
+        # need to record in the veriable_map again?
+        for i in range (self.core_num):
+            ret.multicore_list.append(self.multicore_list[i]+r.multicore_list[i])
+        return ret
+    
+    def __mul__(self, r):
+        ret = multicore_par_var(core_num = self.core_num, par = self.par)
+        
+        # need to record in the veriable_map again?
+        for i in range (self.core_num):
+            ret.multicore_list.append(self.multicore_list[i]*r.multicore_list[i])
+        return ret
+
 
 class Stream(BaseStream):
     __intrinsics__ = ('set_source',
                       'set_source_pattern', 'set_source_multidim',
                       'set_source_multipattern',
+                      'set_source_parallel_pattern',
+                      'set_sink_parallel_pattern',
                       'set_source_generator',
                       'set_source_fifo',
                       'set_source_empty',
@@ -69,7 +117,8 @@ class Stream(BaseStream):
                       'source_join', 'source_done',
                       'sink_join', 'sink_done',
                       'source_join_and_run',
-                      'enable_dump', 'disable_dump')
+                      'enable_dump', 'disable_dump','set_source_parallel','set_sink_parallel',
+                      'source_multicore','set_multicore','set_multicore_ram_lists')
 
     ram_delay = 0
 
@@ -97,7 +146,6 @@ class Stream(BaseStream):
         self.name = name
         self.datawidth = datawidth
         self.addrwidth = addrwidth
-
         self.infinite = infinite
 
         self.max_pattern_length = max_pattern_length
@@ -111,6 +159,11 @@ class Stream(BaseStream):
         self.fsm = FSM(self.module, '_%s_fsm' %
                        self.name, self.clock, self.reset,
                        as_module=self.fsm_as_module)
+        
+        
+        self.ram_lists_indexa = 0
+        self.ram_lists_indexb = 0
+
 
         self.run_flag = self.module.Wire(
             '_'.join(['', self.name, 'run_flag']))
@@ -139,6 +192,8 @@ class Stream(BaseStream):
         self.is_root.assign(1)
 
         self.sources = OrderedDict()
+        self.parallel_source = OrderedDict()
+        self.parallel_sink = OrderedDict()
         self.sinks = OrderedDict()
         self.parameters = OrderedDict()
         self.substreams = []
@@ -165,6 +220,23 @@ class Stream(BaseStream):
 
         self.fsm_id_count = 0
 
+    def source_parallel(self, name=None, datawidth=None, point=0, signed=True, no_ctrl=False, par = 1):
+        var = par_var(par)
+        for i in range(par):
+            var.par_var_list.append(self.source(name+str(i),datawidth, point, signed, no_ctrl))
+        self.parallel_source[name] = (tuple(var.par_var_list), par)
+        return var
+        # var = self._par__Variable(par, self._dataname(name), datawidth, point, signed)
+        # create a class
+    
+    def source_multicore(self, name=None, core_num=None,  datawidth=None, point=0, signed=True, no_ctrl=False, par_for_every_core = 1):   
+        
+        var = multicore_par_var(core_num, par_for_every_core)
+        for i in range(core_num):
+            var.multicore_list.append(self.source_parallel(name+str(i), datawidth, point, signed, no_ctrl, par_for_every_core))
+        self.parallel_source[name] = (tuple(var.multicore_list), par_for_every_core)
+        return var
+    
     def source(self, name=None, datawidth=None, point=0, signed=True, no_ctrl=False):
         if self.stream_synthesized:
             raise ValueError(
@@ -189,13 +261,14 @@ class Stream(BaseStream):
 
         if no_ctrl:
             return var
-
+       
         self.sources[name] = var
         self.var_id_map[_id] = var
         self.var_name_map[name] = var
         self.var_id_name_map[_id] = name
         self.var_name_id_map[name] = _id
 
+        var.name_str = name
         var.source_fsm = None
         var.source_pat_fsm = None
         var.source_multipat_fsm = None
@@ -287,7 +360,23 @@ class Stream(BaseStream):
         )
 
         return var
-
+    def sink_parallel(self, data_list, name=None, when=None, when_name=None, par = 1):
+        par_var_list = []
+        for i in range(par):
+            sink_name = name+str(i)
+            par_var_list.append(sink_name)
+            self.sink(data_list[i], sink_name, when, when_name)
+        self.parallel_sink[name] = (tuple(par_var_list), par)
+    
+    def sink_parallel_different_core(self, data_list, name=None, when=[], when_name=None, core_num = 1):
+        par_var_list = []
+        for i in range(core_num):
+            sink_name = name+str(i)
+            when_core_name = when_name+str(i)
+            par_var_list.append(sink_name)
+            self.sink(data_list[i], sink_name, when[i], when_core_name)
+        self.parallel_sink[name] = (tuple(par_var_list), core_num)
+    
     def sink(self, data, name=None, when=None, when_name=None):
         if self.stream_synthesized:
             raise ValueError(
@@ -691,6 +780,64 @@ class Stream(BaseStream):
                                              self.ram_sel_width, initval=0)
 
         return var
+    
+    def set_multicore(self, fsm, name, ram_list, offset, size, stride=1, port=0, same_ram=False):
+        if ~ same_ram:
+            _size = size
+            i = 0
+            t = name.value
+            for ram in ram_list:
+                name.value = t+str(i) 
+                self.set_source_parallel(fsm, name, ram, offset, _size, port=port) 
+                i += 1
+            # for i in len(ram_list):
+            #     self.set_source_parallel(fsm, name+str(i), ram_list[i], offset, _size) 
+    
+    def set_multicore_ram_lists(self, fsm, name, ram_lists, ram_index_name,  offset, size, stride=1, port=0, same_ram=False):
+        _size = size
+        i = 0
+        t = name.value
+        ram_list = None
+        if ram_index_name.value=="indexa":
+            ram_list = ram_lists[self.ram_lists_indexa]
+        elif ram_index_name.value=="indexb":
+            ram_list = ram_lists[self.ram_lists_indexb]
+
+        for ram in ram_list:
+            name.value = t+str(i) 
+            self.set_source_parallel(fsm, name, ram, offset, _size, port=port) 
+            i += 1
+        # for i in len(ram_list):
+        #     self.set_source_parallel(fsm, name+str(i), ram_list[i], offset, _size)
+    def set_multicore_port(self, fsm, name, ram_address_lists, ram_index_name,  offset, size, stride=1, port=0, core_num=1):
+        _size = size
+        i = 0
+        t = name.value
+        ram_list = None
+        # if ram_index_name.value=="indexa":
+        #     ram_list = ram_lists[self.ram_lists_indexa]
+        # elif ram_index_name.value=="indexb":
+        #     ram_list = ram_lists[self.ram_lists_indexb]
+        
+        for core_index in core_num:
+            name.value = t+str(core_index) 
+            self.set_source_parallel(fsm, name, ram, offset+(core_index*_size), _size, port=core_index) 
+        
+        # for ram in ram_list:
+        #     name.value = t+str(i) 
+        #     self.set_source_parallel(fsm, name, ram, offset, _size, port=port) 
+        #     i += 1
+        # for i in len(ram_list):
+        #     self.set_source_parallel(fsm, name+str(i), ram_list[i], offset, _size)
+
+    def set_source_parallel(self, fsm, name, ram, offset, size, stride=1, port=0, size_len=0):
+        import veriloggen.thread as vthread
+        v_list, par = self.parallel_source[name.value]
+        _size = size
+        mod = _size%par
+        # _size = size // par # note that residue and masking must be considered here
+        for v, _ram in zip(v_list, ram.rams):
+            self.set_source(fsm, v.name_str, _ram, offset, _size, stride, port)
 
     def set_source(self, fsm, name, ram, offset, size, stride=1, port=0):
         """ intrinsic method to assign RAM property to a source stream """
@@ -729,6 +876,15 @@ class Stream(BaseStream):
         port = vtypes.to_int(port)
         self._setup_source_ram(ram, var, port, set_cond)
         self._synthesize_set_source(var, name)
+
+    def set_source_parallel_pattern(self, fsm, name, ram, offset, pattern, port=0):
+        """ intrinsic method to assign RAM property to a source stream """
+        v_list, par = self.parallel_source[name.value]
+        # _size = size // par # note that residue and masking must be considered here
+        i = 0
+        for v, ram in zip(v_list, ram.rams):
+            self._set_source_pattern(fsm, v.name_str, ram, offset+i, pattern, port)
+            i += 1
 
     def set_source_pattern(self, fsm, name, ram, offset, pattern, port=0):
         """ intrinsic method to assign RAM property to a source stream """
@@ -1022,6 +1178,16 @@ class Stream(BaseStream):
         var.write(wdata, wenable)
 
         var.has_source_empty = True
+    
+    def set_sink_parallel(self, fsm, name, rams, offset, size, stride=1, port=0, ):
+        """ intrinsic method to assign RAM property to a sink stream """
+        v_list, par = self.parallel_sink[name.value]
+        _size = size
+
+        # _size = size // par # note that residue and masking must be considered here
+        for name, ram in zip(v_list, rams.rams):
+            self._set_sink(fsm, name, ram, offset, _size, stride, port)
+            # fsm.If(self.oready).goto_next()
 
     def set_sink(self, fsm, name, ram, offset, size, stride=1, port=0):
         """ intrinsic method to assign RAM property to a sink stream """

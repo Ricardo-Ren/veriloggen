@@ -41,7 +41,7 @@ module test
   reg reset_done;
 
   initial begin
-    $dumpfile("dataflow_div_signed.vcd");
+    $dumpfile("uut.vcd");
     $dumpvars(0, uut);
   end
 
@@ -1744,7 +1744,6 @@ module Divider #
 endmodule
 
 """
-
 
 def test():
     veriloggen.reset()

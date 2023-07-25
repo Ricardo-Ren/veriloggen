@@ -16,24 +16,32 @@ def mkLed():
     m = Module('blinkled')
     clk = m.Input('CLK')
     rst = m.Input('RST')
-
+    seq = Seq(m, 'seq', clk, rst)
+    timer = m.Reg('timer', 32, initval=0)
+    seq(
+        timer.inc()
+    )
     datawidth = 32
     addrwidth = 10
     myaxi = vthread.AXIM(m, 'myaxi', clk, rst, datawidth)
-    ram_a = vthread.RAM(m, 'ram_a', clk, rst, datawidth, addrwidth)
+    ram_a = vthread.RAM(m, 'ram_a', clk, rst, datawidth, addrwidth, numports=2)
     ram_b = vthread.RAM(m, 'ram_b', clk, rst, datawidth, addrwidth)
     ram_c = vthread.RAM(m, 'ram_c', clk, rst, datawidth, addrwidth)
-
+    
     strm = vthread.Stream(m, 'mystream', clk, rst)
     a = strm.source('a')
     b = strm.source('b')
     c = a + b
     strm.sink(c, 'c')
 
-    def comp_stream(size, offset):
-        strm.set_source('a', ram_a, offset, size)
-        strm.set_source('b', ram_b, offset, size)
-        strm.set_sink('c', ram_c, offset, size)
+    
+# enable the axi HP port ,blinked as top
+    def comp_stream(size, offset): #(3+size*2)  # LUT: 32 * 32 = 1024  FF: 32*32 
+        strm.set_source('a', ram_a, offset, size) #1
+        # strm.set_source_pattern('a', ram_a, offset, (size, 1)) #1
+        strm.set_source('b', ram_a, offset, size) #1
+        # strm.set_source_pattern('b', ram_b, offset, (size, 1)) #1
+        strm.set_sink('c', ram_c, offset, size)#1
         strm.run()
         strm.join()
 
@@ -50,6 +58,8 @@ def mkLed():
         for i in range(size):
             st = ram_c.read(i + offset_stream)
             sq = ram_c.read(i + offset_seq)
+            print(st)
+            print(sq)
             if vthread.verilog.NotEql(st, sq):
                 all_ok = False
         if all_ok:
@@ -60,18 +70,24 @@ def mkLed():
     def comp(size):
         # stream
         offset = 0
-        myaxi.dma_read(ram_a, offset, 0, size)
-        myaxi.dma_read(ram_b, offset, 512, size)
-        comp_stream(size, offset)
-        myaxi.dma_write(ram_c, offset, 1024, size)
-
+        start_time = timer
+        myaxi.dma_read(ram_a, offset, 0, size) # 32
+        myaxi.dma_read(ram_b, offset, 512, size) # 32
+        comp_stream(size, offset) # 64+3 = 67
+        myaxi.dma_write(ram_c, offset, 1024, size) #32
+        end_time = timer
+        time = end_time - start_time
+        print("stream_Time (cycles): %d" % time)
         # sequential
         offset = size
+        start_time = timer
         myaxi.dma_read(ram_a, offset, 0, size)
         myaxi.dma_read(ram_b, offset, 512, size)
         comp_sequential(size, offset)
         myaxi.dma_write(ram_c, offset, 1024 * 2, size)
-
+        end_time = timer
+        time = end_time - start_time
+        print("sequential_Time (cycles): %d" % time)
         # verification
         myaxi.dma_read(ram_c, 0, 1024, size)
         myaxi.dma_read(ram_c, offset, 1024 * 2, size)
@@ -98,15 +114,15 @@ def mkTest(memimg_name=None):
     clk = ports['CLK']
     rst = ports['RST']
 
-    memory = axi.AxiMemoryModel(m, 'memory', clk, rst, memimg_name=memimg_name)
+    memory = axi.AxiMemoryModel(m, 'memory', clk, rst, memimg_name=memimg_name, 
+                                write_delay=0, read_delay=0, sleep_interval=0, keep_sleep=0)
     memory.connect(ports, 'myaxi')
 
     uut = m.Instance(led, 'uut',
                      params=m.connect_params(led),
                      ports=m.connect_ports(led))
 
-    # vcd_name = os.path.splitext(os.path.basename(__file__))[0] + '.vcd'
-    # simulation.setup_waveform(m, uut, dumpfile=vcd_name)
+    # simulation.setup_waveform(m, uut)
     simulation.setup_clock(m, clk, hperiod=5)
     init = simulation.setup_reset(m, rst, m.make_reset(), period=100)
 
@@ -132,10 +148,18 @@ def run(filename='tmp.v', simtype='iverilog', outputfile=None):
 
     sim = simulation.Simulator(test, sim=simtype)
     rslt = sim.run(outputfile=outputfile)
-
+    lines = rslt.splitlines()
+    if simtype == 'verilator' and lines[-1].startswith('-'):
+        rslt = '\n'.join(lines[:-1])
     return rslt
 
 
 if __name__ == '__main__':
     rslt = run(filename='tmp.v')
     print(rslt)
+    # memimg_name = 'memimg_' + 'tmp.v'
+
+    # test = mkTest(memimg_name=memimg_name)
+    # sim = simulation.Simulator(test, sim='verilator')
+    # rslt = sim.run(outputfile='verilator.out')
+    # print(rslt)

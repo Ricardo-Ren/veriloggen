@@ -94,7 +94,6 @@ module prim_mux #
 endmodule
 """
 
-
 def test():
     veriloggen.reset()
     test_module = primitive_mux.mkLed()

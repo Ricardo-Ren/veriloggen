@@ -87,7 +87,7 @@ module test
   reg reset_done;
 
   initial begin
-    $dumpfile("dataflow_fft4.vcd");
+    $dumpfile("uut.vcd");
     $dumpvars(0, uut, _din0re, _din0im, _din1re, _din1im, _din2re, _din2im, _din3re, _din3im, _dout0re, _dout0im, _dout1re, _dout1im, _dout2re, _dout2im, _dout3re, _dout3im);
   end
 
@@ -3998,8 +3998,6 @@ module multiplier_core_15
 endmodule
 
 """
-
-
 def test():
     veriloggen.reset()
     test_module = dataflow_fft4.mkTest()

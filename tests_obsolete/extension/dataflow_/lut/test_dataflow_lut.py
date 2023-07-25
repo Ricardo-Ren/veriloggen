@@ -41,7 +41,7 @@ module test
   reg reset_done;
 
   initial begin
-    $dumpfile("dataflow_lut.vcd");
+    $dumpfile("uut.vcd");
     $dumpvars(0, uut);
   end
 
@@ -1380,7 +1380,6 @@ module _dataflow_lut_LUT_ROM_2
 endmodule
 
 """
-
 
 def test():
     veriloggen.reset()

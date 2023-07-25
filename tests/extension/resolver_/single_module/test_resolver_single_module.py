@@ -38,7 +38,6 @@ module blinkled #
 endmodule
 """
 
-
 def test():
     veriloggen.reset()
     test_module = resolver_single_module.mkLed()

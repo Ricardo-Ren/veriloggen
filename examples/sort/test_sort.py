@@ -45,7 +45,7 @@ module simsort #
    );
 
   initial begin
-    $dumpfile("sort.vcd");
+    $dumpfile("uut.vcd");
     $dumpvars(0, uut);
   end
 
@@ -320,7 +320,6 @@ registers_1:         98
 registers_2:         99
 registers_3:        100
 """
-
 
 def test():
     veriloggen.reset()

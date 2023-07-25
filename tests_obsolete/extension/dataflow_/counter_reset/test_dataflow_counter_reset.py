@@ -22,7 +22,7 @@ module test
 
 
   initial begin
-    $dumpfile("dataflow_counter_reset.vcd");
+    $dumpfile("uut.vcd");
     $dumpvars(0, uut, CLK, RST);
   end
 
@@ -274,7 +274,6 @@ module main
 endmodule
 
 """
-
 
 def test():
     veriloggen.reset()

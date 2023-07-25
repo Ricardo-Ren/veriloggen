@@ -26,6 +26,7 @@ def mkLed():
     strm = vthread.Stream(m, 'mystream', clk, rst)
     a = strm.source('a') + 1000
     size = strm.parameter('size')
+    # a_list = strm.Split(a, width=datawidth, signed=True)
     sum, sum_valid = strm.ReduceAddValid(a, size)
     strm.sink(sum, 'sum', when=sum_valid, when_name='sum_valid')
 
@@ -48,6 +49,8 @@ def mkLed():
         for i in range(size):
             st = ram_b.read(i + offset_stream)
             sq = ram_b.read(i + offset_seq)
+            print(st)
+            print(sq)
             if vthread.verilog.NotEql(st, sq):
                 all_ok = False
         if all_ok:
@@ -101,8 +104,7 @@ def mkTest(memimg_name=None):
                      params=m.connect_params(led),
                      ports=m.connect_ports(led))
 
-    # vcd_name = os.path.splitext(os.path.basename(__file__))[0] + '.vcd'
-    # simulation.setup_waveform(m, uut, dumpfile=vcd_name)
+    # simulation.setup_waveform(m, uut)
     simulation.setup_clock(m, clk, hperiod=5)
     init = simulation.setup_reset(m, rst, m.make_reset(), period=100)
 
@@ -128,7 +130,9 @@ def run(filename='tmp.v', simtype='iverilog', outputfile=None):
 
     sim = simulation.Simulator(test, sim=simtype)
     rslt = sim.run(outputfile=outputfile)
-
+    lines = rslt.splitlines()
+    if simtype == 'verilator' and lines[-1].startswith('-'):
+        rslt = '\n'.join(lines[:-1])
     return rslt
 
 

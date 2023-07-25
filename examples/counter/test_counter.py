@@ -20,7 +20,7 @@ module test;
 
 
   initial begin
-    $dumpfile("counter.vcd");
+    $dumpfile("uut.vcd");
     $dumpvars(0, uut, CLK, RST, LED);
   end
 
@@ -89,7 +89,6 @@ module blinkled
 
 endmodule
 """
-
 
 def test():
     veriloggen.reset()

@@ -19,7 +19,7 @@ def mkMain():
 
     # stream definition
     z = x + y
-    z, v = stream.ReduceAddValid(z, 8, enable=e)
+    z, v = stream.ReduceAddValid(z, 16, enable=e)
 
     # set output attribute
     z.output('zdata')
@@ -60,8 +60,7 @@ def mkTest(numports=8):
     reset_stmt.append(ydata(0))
     reset_stmt.append(edata(0))
 
-    # vcd_name = os.path.splitext(os.path.basename(__file__))[0] + '.vcd'
-    # simulation.setup_waveform(m, uut, dumpfile=vcd_name)
+    # simulation.setup_waveform(m, uut)
     simulation.setup_clock(m, clk, hperiod=5)
     init = simulation.setup_reset(m, rst, reset_stmt, period=100)
 

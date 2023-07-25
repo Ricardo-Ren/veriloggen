@@ -28,7 +28,7 @@ module test #
    );
 
 //  initial begin
-//    $dumpfile("simulation_simulator_vcs.vcd");
+//    $dumpfile("uut.vcd");
 //    $dumpvars(0, uut);
 //  end
 

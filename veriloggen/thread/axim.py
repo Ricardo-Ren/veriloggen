@@ -31,7 +31,7 @@ class AXIM(axi.AxiMaster, _MutexFunction):
                       'dma_wait_read', 'dma_wait_write',
                       'dma_wait_write_idle', 'dma_wait_write_response',
                       'dma_wait',
-                      'set_global_base_addr',) + _MutexFunction.__intrinsics__
+                      'set_global_base_addr', 'dma_read_packed_multi_ram') + _MutexFunction.__intrinsics__
 
     def __init__(self, m, name, clk, rst, datawidth=32, addrwidth=32,
                  waddr_id_width=0, wdata_id_width=0, wresp_id_width=0,
@@ -43,12 +43,10 @@ class AXIM(axi.AxiMaster, _MutexFunction):
                  waddr_prot_mode=axi.AxPROT_NONCOHERENT, raddr_prot_mode=axi.AxPROT_NONCOHERENT,
                  waddr_user_mode=axi.AxUSER_NONCOHERENT, wdata_user_mode=axi.xUSER_DEFAULT,
                  raddr_user_mode=axi.AxUSER_NONCOHERENT,
-                 noio=False, sb_depth=1,
+                 noio=False,
                  use_global_base_addr=False,
-                 op_sel_width=8, req_fifo_addrwidth=3,
-                 fsm_as_module=False):
+                 op_sel_width=8, req_fifo_addrwidth=3, fsm_as_module=False):
 
-        outstanding_wcount_width = req_fifo_addrwidth
         axi.AxiMaster.__init__(self, m, name, clk, rst, datawidth, addrwidth,
                                waddr_id_width, wdata_id_width, wresp_id_width,
                                raddr_id_width, rdata_id_width,
@@ -59,7 +57,7 @@ class AXIM(axi.AxiMaster, _MutexFunction):
                                waddr_prot_mode, raddr_prot_mode,
                                waddr_user_mode, wdata_user_mode,
                                raddr_user_mode,
-                               noio, outstanding_wcount_width, sb_depth)
+                               noio, req_fifo_addrwidth)
 
         self.use_global_base_addr = use_global_base_addr
         self.op_sel_width = op_sel_width
@@ -131,20 +129,15 @@ class AXIM(axi.AxiMaster, _MutexFunction):
                                                              'read_local_blocksize_buf']),
                                                    self.addrwidth, initval=0)
 
-        self.read_req_busy = self.m.Reg(
-            '_'.join(['', self.name, 'read_req_busy']), initval=0)
-        self.read_data_busy = self.m.Reg(
-            '_'.join(['', self.name, 'read_data_busy']), initval=0)
+        self.read_req_idle = self.m.Reg(
+            '_'.join(['', self.name, 'read_req_idle']), initval=1)
+        self.read_data_idle = self.m.Reg(
+            '_'.join(['', self.name, 'read_data_idle']), initval=1)
 
-        self.read_req_idle = self.m.Wire('_'.join(['', self.name, 'read_req_idle']))
-        self.read_data_idle = self.m.Wire('_'.join(['', self.name, 'read_data_idle']))
         self.read_idle = self.m.Wire('_'.join(['', self.name, 'read_idle']))
-
-        self.read_req_idle.assign(vtypes.Ands(vtypes.Not(self.read_start),
-                                              vtypes.Not(self.read_req_busy)))
-        self.read_data_idle.assign(vtypes.Ands(self.read_req_fifo.empty,
-                                               vtypes.Not(self.read_data_busy)))
-        self.read_idle.assign(vtypes.Ands(self.read_req_idle, self.read_data_idle))
+        self.read_idle.assign(
+            vtypes.Ands(vtypes.Not(self.read_start), self.read_req_idle,
+                        self.read_req_fifo.empty, self.read_data_idle))
 
         self.seq(
             self.read_start(0)
@@ -222,20 +215,15 @@ class AXIM(axi.AxiMaster, _MutexFunction):
                                                               'write_local_blocksize_buf']),
                                                     self.addrwidth, initval=0)
 
-        self.write_req_busy = self.m.Reg(
-            '_'.join(['', self.name, 'write_req_busy']), initval=0)
-        self.write_data_busy = self.m.Reg(
-            '_'.join(['', self.name, 'write_data_busy']), initval=0)
+        self.write_req_idle = self.m.Reg(
+            '_'.join(['', self.name, 'write_req_idle']), initval=1)
+        self.write_data_idle = self.m.Reg(
+            '_'.join(['', self.name, 'write_data_idle']), initval=1)
 
-        self.write_req_idle = self.m.Wire('_'.join(['', self.name, 'write_req_idle']))
-        self.write_data_idle = self.m.Wire('_'.join(['', self.name, 'write_data_idle']))
         self.write_idle = self.m.Wire('_'.join(['', self.name, 'write_idle']))
-
-        self.write_req_idle.assign(vtypes.Ands(vtypes.Not(self.write_start),
-                                               vtypes.Not(self.write_req_busy)))
-        self.write_data_idle.assign(vtypes.Ands(self.write_req_fifo.empty,
-                                                vtypes.Not(self.write_data_busy)))
-        self.write_idle.assign(vtypes.Ands(self.write_req_idle, self.write_data_idle))
+        self.write_idle.assign(
+            vtypes.Ands(vtypes.Not(self.write_start), self.write_req_idle,
+                        self.write_req_fifo.empty, self.write_data_idle))
 
         self.seq(
             self.write_start(0)
@@ -263,21 +251,26 @@ class AXIM(axi.AxiMaster, _MutexFunction):
         global_size = 1
 
         # state 0
-        self.seq.If(fsm.here, self.read_idle)(
-            self.read_req_busy(1),
-            self.read_data_busy(1)
+        self.seq.If(fsm.here, self.read_req_idle)(
+            self.read_req_idle(0)
         )
-        fsm.If(self.read_idle).goto_next()
+        fsm.If(self.read_req_idle).goto_next()
 
         # state 1
         req_cond = fsm.here
         ack = self.read_request(global_addr, global_size, cond=req_cond)
         self.seq.If(fsm.here, ack)(
-            self.read_req_busy(0)
+            self.read_req_idle(1)
         )
         fsm.If(ack).goto_next()
 
         # state 2
+        self.seq.If(fsm.here, self.read_data_idle)(
+            self.read_data_idle(0)
+        )
+        fsm.If(self.read_data_idle).goto_next()
+
+        # state 3
         rcond = fsm.here
         rdata = self.m.TmpReg(self.datawidth, initval=0,
                               signed=True, prefix='axim_rdata')
@@ -286,7 +279,7 @@ class AXIM(axi.AxiMaster, _MutexFunction):
             rdata(self.rdata.rdata)
         )
         self.seq.If(fsm.here, self.rdata.rvalid)(
-            self.read_data_busy(0)
+            self.read_data_idle(1)
         )
         fsm.If(self.rdata.rvalid).goto_next()
 
@@ -299,28 +292,33 @@ class AXIM(axi.AxiMaster, _MutexFunction):
         global_size = 1
 
         # state 0
-        self.seq.If(fsm.here, self.write_idle)(
-            self.write_req_busy(1),
-            self.write_data_busy(1)
+        self.seq.If(fsm.here, self.write_req_idle)(
+            self.write_req_idle(0)
         )
-        fsm.If(self.write_idle).goto_next()
+        fsm.If(self.write_req_idle).goto_next()
 
         # state 1
         req_cond = fsm.here
         ack = self.write_request(global_addr, global_size, cond=req_cond)
         self.seq.If(fsm.here, ack)(
-            self.write_req_busy(0)
+            self.write_req_idle(1)
         )
         fsm.If(ack).goto_next()
 
         # state 2
+        self.seq.If(fsm.here, self.write_data_idle)(
+            self.write_data_idle(0)
+        )
+        fsm.If(self.write_data_idle).goto_next()
+
+        # state 3
         wcond = fsm.here
         wdata = value
         wlast = 1
         _ = self.write_data(wdata, wlast, cond=wcond)
         ack = vtypes.Ors(self.wdata.wready, vtypes.Not(self.wdata.wvalid))
         self.seq.If(fsm.here, ack)(
-            self.write_data_busy(0)
+            self.write_data_idle(1)
         )
         fsm.If(ack).goto_next()
 
@@ -570,6 +568,23 @@ class AXIM(axi.AxiMaster, _MutexFunction):
         self._dma_write(fsm, ram, local_bank_addr, global_addr, local_size,
                         local_stride, local_blocksize, port, ram_method)
 
+    
+    def dma_read_packed_multi_ram(self, fsm, ram_list, local_addr, global_offset, local_size, core_num=1, local_stride=None, port=0, same_content=False, different_ram_type=False):
+        if same_content:
+            for i in range(core_num):
+                self.dma_read_packed(fsm, ram_list[i], local_addr, global_offset, local_size, local_stride, port)
+        elif not different_ram_type:    
+            for i in range(core_num):
+                self.dma_read_packed(fsm, ram_list[i], local_addr, (local_size*i*4)+global_offset, local_size, local_stride, port)
+        else:
+            par = 0
+            for ram in ram_list:
+                par += 1
+            for i in range():
+                for ram in ram_list:
+                    pass
+                    # self.dma_read_packed(fsm, ram)
+
     # multi-bank packed DMA
     def dma_read_packed(self, fsm, ram, local_addr, global_addr, local_size,
                         local_stride=None, port=0):
@@ -578,6 +593,12 @@ class AXIM(axi.AxiMaster, _MutexFunction):
                               local_stride, port)
 
         self.dma_wait_read(fsm)
+    
+    def dma_read_packed_bank_list(self, fsm, ram, bank_list, local_bank_addr, global_addr, local_bank_size,
+                        local_stride=None, port=0):
+        for bank in bank_list:
+            self.dma_read_bank(self, fsm, ram, bank, local_bank_addr, global_addr, local_bank_size,
+                        local_bank_stride=1, port=0)
 
     def dma_read_packed_async(self, fsm, ram, local_addr, global_addr, local_size,
                               local_stride=None, port=0):
@@ -795,7 +816,7 @@ class AXIM(axi.AxiMaster, _MutexFunction):
             shamt = int(math.log(pack_size, 2))
             res = vtypes.Mux(
                 vtypes.And(global_size, 2 ** shamt - 1) > 0, 1, 0)
-            global_size = vtypes.Add((global_size >> shamt), res)
+            global_size = (global_size >> shamt) + res
 
         op_id = self._get_read_op_id(ram, port, ram_method)
 
@@ -829,7 +850,7 @@ class AXIM(axi.AxiMaster, _MutexFunction):
 
         # Req state 0
         self.seq.If(req_fsm.here, self.read_start)(
-            self.read_req_busy(1)
+            self.read_req_idle(0)
         )
         self.seq.If(self.read_start, self.read_req_fifo.almost_full)(
             self.read_start(1)
@@ -863,7 +884,7 @@ class AXIM(axi.AxiMaster, _MutexFunction):
             cont(0)
         )
         self.seq.If(req_fsm.here, ack, self.read_global_size == 0)(
-            self.read_req_busy(0)
+            self.read_req_idle(1)
         )
         req_fsm.If(ack).goto_init()
 
@@ -900,11 +921,11 @@ class AXIM(axi.AxiMaster, _MutexFunction):
             self.read_data_fsm = data_fsm
 
         # Data state 0
-        cond = vtypes.Ands(vtypes.Not(self.read_data_busy),
+        cond = vtypes.Ands(self.read_data_idle,
                            vtypes.Not(self.read_req_fifo.empty),
                            self.read_op_sel_fifo == op_id)
         self.seq.If(data_fsm.here, cond)(
-            self.read_data_busy(1),
+            self.read_data_idle(0),
             self.read_op_sel_buf(self.read_op_sel_fifo),
             self.read_local_addr_buf(self.read_local_addr_fifo),
             self.read_local_stride_buf(self.read_local_stride_fifo),
@@ -931,7 +952,7 @@ class AXIM(axi.AxiMaster, _MutexFunction):
 
         data_fsm.If(self.rdata.rvalid, self.read_local_size_buf <= 1).goto_init()
         self.seq.If(data_fsm.here, self.rdata.rvalid, self.read_local_size_buf <= 1)(
-            self.read_data_busy(0)
+            self.read_data_idle(1)
         )
 
     def _synthesize_read_data_fsm_narrow(self, ram, port, ram_method, ram_datawidth):
@@ -964,11 +985,11 @@ class AXIM(axi.AxiMaster, _MutexFunction):
             self.read_data_narrow_fsm = data_fsm
 
         # Data state 0
-        cond = vtypes.Ands(vtypes.Not(self.read_data_busy),
+        cond = vtypes.Ands(self.read_data_idle,
                            vtypes.Not(self.read_req_fifo.empty),
                            self.read_op_sel_fifo == op_id)
         self.seq.If(data_fsm.here, cond)(
-            self.read_data_busy(1),
+            self.read_data_idle(0),
             self.read_op_sel_buf(self.read_op_sel_fifo),
             self.read_local_addr_buf(self.read_local_addr_fifo),
             self.read_local_stride_buf(self.read_local_stride_fifo),
@@ -1020,7 +1041,7 @@ class AXIM(axi.AxiMaster, _MutexFunction):
                     count == pack_size - 1).goto_init()
         self.seq.If(data_fsm.here, cond, self.rdata.rvalid, self.read_local_size_buf <= 1,
                     count == pack_size - 1)(
-            self.read_data_busy(0)
+            self.read_data_idle(1)
         )
 
     def _synthesize_read_data_fsm_wide(self, ram, port, ram_method, ram_datawidth):
@@ -1053,11 +1074,11 @@ class AXIM(axi.AxiMaster, _MutexFunction):
             self.read_data_wide_fsm = data_fsm
 
         # Data state 0
-        cond = vtypes.Ands(vtypes.Not(self.read_data_busy),
+        cond = vtypes.Ands(self.read_data_idle,
                            vtypes.Not(self.read_req_fifo.empty),
                            self.read_op_sel_fifo == op_id)
         self.seq.If(data_fsm.here, cond)(
-            self.read_data_busy(1),
+            self.read_data_idle(0),
             self.read_op_sel_buf(self.read_op_sel_fifo),
             self.read_local_addr_buf(self.read_local_addr_fifo),
             self.read_local_stride_buf(self.read_local_stride_fifo),
@@ -1119,11 +1140,11 @@ class AXIM(axi.AxiMaster, _MutexFunction):
                     cond, self.rdata.rvalid, count == 0).goto_init()
         self.seq.If(data_fsm.here, self.read_local_size_buf <= 1,
                     cond, count > 0)(
-            self.read_data_busy(0)
+            self.read_data_idle(1)
         )
         self.seq.If(data_fsm.here, self.read_local_size_buf <= 1,
                     cond, self.rdata.rvalid, count == 0)(
-            self.read_data_busy(0)
+            self.read_data_idle(1)
         )
 
     # --------------------
@@ -1190,7 +1211,7 @@ class AXIM(axi.AxiMaster, _MutexFunction):
             shamt = int(math.log(pack_size, 2))
             res = vtypes.Mux(
                 vtypes.And(global_size, 2 ** shamt - 1) > 0, 1, 0)
-            global_size = vtypes.Add((global_size >> shamt), res)
+            global_size = (global_size >> shamt) + res
 
         op_id = self._get_write_op_id(ram, port, ram_method)
 
@@ -1224,7 +1245,7 @@ class AXIM(axi.AxiMaster, _MutexFunction):
 
         # Req state 0
         self.seq.If(req_fsm.here, self.write_start)(
-            self.write_req_busy(1)
+            self.write_req_idle(0)
         )
         self.seq.If(self.write_start, self.write_req_fifo.almost_full)(
             self.write_start(1)
@@ -1273,7 +1294,7 @@ class AXIM(axi.AxiMaster, _MutexFunction):
             cont(0)
         )
         self.seq.If(req_fsm.here, enq_cond, self.write_global_size == 0)(
-            self.write_req_busy(0)
+            self.write_req_idle(1)
         )
         req_fsm.If(enq_cond).goto_init()
 
@@ -1310,11 +1331,11 @@ class AXIM(axi.AxiMaster, _MutexFunction):
             self.write_data_fsm = data_fsm
 
         # Data state 0
-        cond = vtypes.Ands(vtypes.Not(self.write_data_busy),
+        cond = vtypes.Ands(self.write_data_idle,
                            vtypes.Not(self.write_req_fifo.empty),
                            self.write_op_sel_fifo == op_id)
         self.seq.If(data_fsm.here, cond)(
-            self.write_data_busy(1),
+            self.write_data_idle(0),
             self.write_op_sel_buf(self.write_op_sel_fifo),
             self.write_local_addr_buf(self.write_local_addr_fifo),
             self.write_local_stride_buf(self.write_local_stride_fifo),
@@ -1357,7 +1378,7 @@ class AXIM(axi.AxiMaster, _MutexFunction):
 
         data_fsm.If(wcond, rlast).goto_init()
         self.seq.If(data_fsm.here, wcond, rlast)(
-            self.write_data_busy(0)
+            self.write_data_idle(1)
         )
 
     def _synthesize_write_data_fsm_narrow(self, ram, port, ram_method, ram_datawidth):
@@ -1390,11 +1411,11 @@ class AXIM(axi.AxiMaster, _MutexFunction):
             self.write_data_narrow_fsm = data_fsm
 
         # Data state 0
-        cond = vtypes.Ands(vtypes.Not(self.write_data_busy),
+        cond = vtypes.Ands(self.write_data_idle,
                            vtypes.Not(self.write_req_fifo.empty),
                            self.write_op_sel_fifo == op_id)
         self.seq.If(data_fsm.here, cond)(
-            self.write_data_busy(1),
+            self.write_data_idle(0),
             self.write_op_sel_buf(self.write_op_sel_fifo),
             self.write_local_addr_buf(self.write_local_addr_fifo),
             self.write_local_stride_buf(self.write_local_stride_fifo),
@@ -1469,7 +1490,7 @@ class AXIM(axi.AxiMaster, _MutexFunction):
         data_fsm.If(wcond, count == pack_size - 1, wlast).goto_init()
 
         self.seq.If(data_fsm.here, wcond, count == pack_size - 1, wlast)(
-            self.write_data_busy(0)
+            self.write_data_idle(1)
         )
 
     def _synthesize_write_data_fsm_wide(self, ram, port, ram_method, ram_datawidth):
@@ -1502,7 +1523,7 @@ class AXIM(axi.AxiMaster, _MutexFunction):
             self.write_data_wide_fsm = data_fsm
 
         # Data state 0
-        cond = vtypes.Ands(vtypes.Not(self.write_data_busy),
+        cond = vtypes.Ands(self.write_data_idle,
                            vtypes.Not(self.write_req_fifo.empty),
                            self.write_op_sel_fifo == op_id)
         res = vtypes.Mux(
@@ -1511,7 +1532,7 @@ class AXIM(axi.AxiMaster, _MutexFunction):
         local_size = global_size << log_pack_size
 
         self.seq.If(data_fsm.here, cond)(
-            self.write_data_busy(1),
+            self.write_data_idle(0),
             self.write_op_sel_buf(self.write_op_sel_fifo),
             self.write_local_addr_buf(self.write_local_addr_fifo),
             self.write_local_stride_buf(self.write_local_stride_fifo),
@@ -1573,7 +1594,7 @@ class AXIM(axi.AxiMaster, _MutexFunction):
         data_fsm.If(count == pack_size - 1, rvalid, rready, rlast).goto_init()
 
         self.seq.If(data_fsm.here, count == pack_size - 1, rvalid, rready, rlast)(
-            self.write_data_busy(0)
+            self.write_data_idle(1)
         )
 
     def _set_flag(self, fsm, prefix='axim_flag'):
@@ -1719,20 +1740,19 @@ class AXIMVerify(AXIM):
         delay_count = self.m.TmpReg(self.addrwidth, initval=0, prefix='delay_count')
 
         # state 0
-        self.seq.If(fsm.here, self.read_idle)(
-            self.read_req_busy(1),
-            self.read_data_busy(1)
+        self.seq.If(fsm.here, self.read_req_idle)(
+            self.read_req_idle(0)
         )
         fsm(
             delay_count(delay)
         )
-        fsm.If(self.read_idle).goto_next()
+        fsm.If(self.read_req_idle).goto_next()
 
         # state 1
         req_cond = fsm.here
         ack = self.read_request(global_addr, global_size, cond=req_cond)
         self.seq.If(fsm.here, ack)(
-            self.read_req_busy(0)
+            self.read_req_idle(1)
         )
         fsm.If(ack).goto_next()
 
@@ -1740,7 +1760,10 @@ class AXIMVerify(AXIM):
         fsm.If(delay_count > 0)(
             delay_count.dec()
         )
-        fsm.If(delay_count == 0).goto_next()
+        self.seq.If(fsm.here, delay_count == 0, self.read_data_idle)(
+            self.read_data_idle(0)
+        )
+        fsm.If(delay_count == 0, self.read_data_idle).goto_next()
 
         # state 3
         rcond = fsm.here
@@ -1751,7 +1774,7 @@ class AXIMVerify(AXIM):
             rdata(self.rdata.rdata)
         )
         self.seq.If(fsm.here, self.rdata.rvalid)(
-            self.read_data_busy(0)
+            self.read_data_idle(1)
         )
         fsm.If(self.rdata.rvalid).goto_next()
 
@@ -1765,20 +1788,19 @@ class AXIMVerify(AXIM):
         delay_count = self.m.TmpReg(self.addrwidth, initval=0, prefix='delay_count')
 
         # state 0
-        self.seq.If(fsm.here, self.write_idle)(
-            self.write_req_busy(1),
-            self.write_data_busy(1)
+        self.seq.If(fsm.here, self.write_req_idle)(
+            self.write_req_idle(0)
         )
         fsm(
             delay_count(delay)
         )
-        fsm.If(self.write_idle).goto_next()
+        fsm.If(self.write_req_idle).goto_next()
 
         # state 1
         req_cond = fsm.here
         ack = self.write_request(global_addr, global_size, cond=req_cond)
         self.seq.If(fsm.here, ack)(
-            self.write_req_busy(0)
+            self.write_req_idle(1)
         )
         fsm.If(ack).goto_next()
 
@@ -1786,7 +1808,10 @@ class AXIMVerify(AXIM):
         fsm.If(delay_count > 0)(
             delay_count.dec()
         )
-        fsm.If(delay_count == 0).goto_next()
+        self.seq.If(fsm.here, delay_count == 0, self.write_data_idle)(
+            self.write_data_idle(0)
+        )
+        fsm.If(delay_count == 0, self.write_data_idle).goto_next()
 
         # state 3
         wcond = fsm.here
@@ -1795,7 +1820,7 @@ class AXIMVerify(AXIM):
         _ = self.write_data(wdata, wlast, cond=wcond)
         ack = vtypes.Ors(self.wdata.wready, vtypes.Not(self.wdata.wvalid))
         self.seq.If(fsm.here, ack)(
-            self.write_data_busy(0)
+            self.write_data_idle(1)
         )
         fsm.If(ack).goto_next()
 
@@ -1809,15 +1834,14 @@ class AXIMLite(axi.AxiLiteMaster, _MutexFunction):
     def __init__(self, m, name, clk, rst, datawidth=32, addrwidth=32,
                  waddr_cache_mode=axi.AxCACHE_NONCOHERENT, raddr_cache_mode=axi.AxCACHE_NONCOHERENT,
                  waddr_prot_mode=axi.AxPROT_NONCOHERENT, raddr_prot_mode=axi.AxPROT_NONCOHERENT,
-                 noio=False, sb_depth=1,
+                 noio=False,
                  use_global_base_addr=False,
                  fsm_as_module=False):
 
-        outstanding_wcount_width = 3
         axi.AxiLiteMaster.__init__(self, m, name, clk, rst, datawidth, addrwidth,
                                    waddr_cache_mode, raddr_cache_mode,
                                    waddr_prot_mode, raddr_prot_mode,
-                                   noio, outstanding_wcount_width, sb_depth)
+                                   noio)
 
         self.use_global_base_addr = use_global_base_addr
         self.fsm_as_module = fsm_as_module
@@ -1836,8 +1860,7 @@ class AXIMLite(axi.AxiLiteMaster, _MutexFunction):
         fsm.If(ack).goto_next()
 
         # state 1
-        done = vtypes.Ands(self.raddr.arvalid, self.raddr.arready)
-        fsm.If(done).goto_next()
+        fsm.goto_next()
 
         # state 2
         rcond = fsm.here
@@ -1863,8 +1886,7 @@ class AXIMLite(axi.AxiLiteMaster, _MutexFunction):
         fsm.If(ack).goto_next()
 
         # state 1
-        done = vtypes.Ands(self.waddr.awvalid, self.waddr.awready)
-        fsm.If(done).goto_next()
+        fsm.goto_next()
 
         # state 2
         wcond = fsm.here
@@ -1873,17 +1895,12 @@ class AXIMLite(axi.AxiLiteMaster, _MutexFunction):
         ack = vtypes.Ors(self.wdata.wready, vtypes.Not(self.wdata.wvalid))
         fsm.If(ack).goto_next()
 
-        # state 3
-        done = vtypes.Ands(self.wdata.wvalid, self.wdata.wready)
-        fsm.If(done).goto_next()
+    def write_fence(self, fsm, global_addr, value):
 
-        # state 4
+        self.write(fsm, global_addr, value)
+
         res = self.write_completed()
         fsm.If(res).goto_next()
-
-    def write_fence(self, fsm, global_addr, value):
-        """ AXI-Lite Master must not issue any request until the previous request is completed."""
-        self.write(fsm, global_addr, value)
 
     def set_global_base_addr(self, fsm, addr):
 
@@ -1915,16 +1932,12 @@ class AXIMLiteVerify(AXIMLite):
         fsm.If(ack).goto_next()
 
         # state 1
-        done = vtypes.Ands(self.raddr.arvalid, self.raddr.arready)
-        fsm.If(done).goto_next()
-
-        # state 2
         fsm.If(delay_count > 0)(
             delay_count.dec()
         )
         fsm.If(delay_count == 0).goto_next()
 
-        # state 3
+        # state 2
         rcond = fsm.here
         rdata = self.m.TmpReg(self.datawidth, initval=0,
                               signed=True, prefix='axim_rdata')
@@ -1952,26 +1965,14 @@ class AXIMLiteVerify(AXIMLite):
         fsm.If(ack).goto_next()
 
         # state 1
-        done = vtypes.Ands(self.waddr.awvalid, self.waddr.awready)
-        fsm.If(done).goto_next()
-
-        # state 2
         fsm.If(delay_count > 0)(
             delay_count.dec()
         )
         fsm.If(delay_count == 0).goto_next()
 
-        # state 3
+        # state 2
         wcond = fsm.here
         wdata = value
         _ = self.write_data(wdata, cond=wcond)
         ack = vtypes.Ors(self.wdata.wready, vtypes.Not(self.wdata.wvalid))
         fsm.If(ack).goto_next()
-
-        # state 4
-        done = vtypes.Ands(self.wdata.wvalid, self.wdata.wready)
-        fsm.If(done).goto_next()
-
-        # state 5
-        res = self.write_completed()
-        fsm.If(res).goto_next()

@@ -37,14 +37,7 @@ def setup_waveform(m, *uuts, **kwargs):
                 continue
             new_uuts.append(uut)
 
-    if 'dumpfile' in kwargs:
-        dumpfile = kwargs['dumpfile']
-    else:
-        dumpfile_fd = tempfile.NamedTemporaryFile(prefix="waveform_",
-                                                  suffix=".vcd",
-                                                  dir=os.getcwd(),
-                                                  delete=False)
-        dumpfile = dumpfile_fd.name
+    dumpfile = kwargs['dumpfile'] if 'dumpfile' in kwargs else 'uut.vcd'
 
     uuts = new_uuts
     ret = m.Initial(
@@ -135,14 +128,8 @@ def run_iverilog(objs, display=False, top=None, outputfile=None,
 
     top_name = top.name if isinstance(top, module.Module) else top
 
-    tmp_outputfile_fd = None
     if outputfile is None:
-        tmp_outputfile_fd = tempfile.NamedTemporaryFile(prefix="iverilog_",
-                                                        suffix=".out",
-                                                        dir=os.getcwd())
-        outputfile = tmp_outputfile_fd.name
-
-    outputfile = os.path.abspath(outputfile)
+        outputfile = 'a.out'
 
     cmd = []
     cmd.append('iverilog')
@@ -206,9 +193,6 @@ def run_iverilog(objs, display=False, top=None, outputfile=None,
     if os.name == 'nt':
         os.remove(path)
 
-    if tmp_outputfile_fd is not None:
-        tmp_outputfile_fd.close()
-
     return ''.join([syn_rslt, sim_rslt])
 
 
@@ -224,14 +208,8 @@ def run_vcs(objs, display=False, top=None, outputfile=None,
 
     top_name = top.name if isinstance(top, module.Module) else top
 
-    tmp_outputfile_fd = None
     if outputfile is None:
-        tmp_outputfile_fd = tempfile.NamedTemporaryFile(prefix="vcs_",
-                                                        suffix=".out",
-                                                        dir=os.getcwd())
-        outputfile = tmp_outputfile_fd.name
-
-    outputfile = os.path.abspath(outputfile)
+        outputfile = 'simv'
 
     cmd = []
     cmd.append('vcs')
@@ -294,7 +272,7 @@ def run_vcs(objs, display=False, top=None, outputfile=None,
     if os.name == 'nt':
         cmd.append(outputfile)
     else:
-        cmd.append(outputfile)
+        cmd.append('./' + outputfile)
 
     sim_rslt = _exec(' '.join(cmd), encoding, display)
 
@@ -303,9 +281,6 @@ def run_vcs(objs, display=False, top=None, outputfile=None,
 
     if os.name == 'nt':
         os.remove(path)
-
-    if tmp_outputfile_fd is not None:
-        tmp_outputfile_fd.close()
 
     return ''.join([syn_rslt, sim_rslt])
 
@@ -321,14 +296,8 @@ def run_modelsim(objs, display=False, top=None, outputfile=None,
 
     top_name = top.name if isinstance(top, module.Module) else top
 
-    tmp_outputfile_fd = None
     if outputfile is None:
-        tmp_outputfile_fd = tempfile.NamedTemporaryFile(prefix="modelsim_",
-                                                        suffix=".out",
-                                                        dir=os.getcwd())
-        outputfile = tmp_outputfile_fd.name
-
-    outputfile = os.path.abspath(outputfile)
+        outputfile = 'a.out'
 
     cmd = []
     cmd.append('vlib work ; vmap work ; vlog')
@@ -387,9 +356,6 @@ def run_modelsim(objs, display=False, top=None, outputfile=None,
 
     if os.name == 'nt':
         os.remove(path)
-
-    if tmp_outputfile_fd is not None:
-        tmp_outputfile_fd.close()
 
     return ''.join([syn_rslt, sim_rslt])
 
@@ -523,14 +489,8 @@ def run_verilator(objs, display=False, top=None, outputfile=None,
     if not isinstance(top, module.Module):
         raise ValueError('top module must be specified.')
 
-    tmp_outputfile_fd = None
     if outputfile is None:
-        tmp_outputfile_fd = tempfile.TemporaryDirectory(prefix="verilator_",
-                                                        suffix=".out",
-                                                        dir=os.getcwd())
-        outputfile = tmp_outputfile_fd.name
-
-    outputfile = os.path.abspath(outputfile)
+        outputfile = 'obj_dir'
 
     cmd = []
     cmd.append('verilator')
@@ -611,12 +571,9 @@ def run_verilator(objs, display=False, top=None, outputfile=None,
     if os.name == 'nt':
         cmd.append(outputfile + '/' + 'V' + verilog_prefix)
     else:
-        cmd.append(outputfile + '/' + 'V' + verilog_prefix)
+        cmd.append('./' + outputfile + '/' + 'V' + verilog_prefix)
 
     sim_rslt = _exec(' '.join(cmd), encoding, display)
-
-    if tmp_outputfile_fd is not None:
-        tmp_outputfile_fd.cleanup()
 
     # return ''.join([syn_rslt, make_rslt, sim_rslt])
     return sim_rslt

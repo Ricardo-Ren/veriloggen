@@ -22,7 +22,7 @@ module test;
   reg reset_done;
 
   initial begin
-    $dumpfile("pipeline_single_add.vcd");
+    $dumpfile("uut.vcd");
     $dumpvars(0, uut);
   end
 
@@ -149,7 +149,6 @@ module blinkled
 
 endmodule
 """
-
 
 def test():
     veriloggen.reset()

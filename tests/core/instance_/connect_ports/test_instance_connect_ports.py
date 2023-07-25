@@ -58,7 +58,6 @@ module blinkled #
 endmodule
 """
 
-
 def test_led():
     test_module = instance_connect_ports.mkTop()
     code = test_module.to_verilog()

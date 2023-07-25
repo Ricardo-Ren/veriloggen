@@ -96,7 +96,6 @@ module blinkled #
 endmodule
 """
 
-
 def test():
     veriloggen.reset()
     test_module = resolver_for_loop.mkLed()

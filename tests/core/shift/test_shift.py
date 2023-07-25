@@ -39,7 +39,6 @@ module blinkled #
 endmodule
 """
 
-
 def test_led():
     test_module = shift.mkLed()
     code = test_module.to_verilog()
